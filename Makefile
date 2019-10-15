@@ -11,6 +11,21 @@ DEVSTACK_WORKSPACE ?= $(shell pwd)/..
 
 OS := $(shell uname)
 
+# Need to run some things under winpty in a Windows git-bash shell
+# (but not when calling bash from a command shell or PowerShell)
+ifneq (,$(MINGW_PREFIX))
+    WINPTY := winpty
+else
+    WINPTY :=
+endif
+
+# Don't try redirecting to /dev/null in any Windows shell
+ifneq (,$(findstring MINGW,$(OS)))
+    DEVNULL :=
+else
+    DEVNULL := >/dev/null
+endif
+
 COMPOSE_PROJECT_NAME=devstack
 
 export DEVSTACK_WORKSPACE
@@ -41,33 +56,33 @@ dev.clone: ## Clone service repos to the parent directory
 	./repo.sh clone
 
 dev.provision.run: ## Provision all services with local mounted directories
-	DOCKER_COMPOSE_FILES="-f docker-compose.yml -f docker-compose-host.yml" ./provision.sh
+	DOCKER_COMPOSE_FILES="-f docker-compose.yml -f docker-compose-host.yml" $(WINPTY) bash ./provision.sh
 
 dev.provision: | check-memory dev.clone dev.provision.run stop ## Provision dev environment with all services stopped
 
-dev.provision.xqueue: | check-memory dev.provision.xqueue.run stop stop.xqueue
+dev.provision.xqueue: | check-memory dev.provision.xqueue.run stop stop.xqueue  # Provision XQueue; run after other services are provisioned
 
 dev.provision.xqueue.run:
-	DOCKER_COMPOSE_FILES="-f docker-compose.yml -f docker-compose-xqueue.yml" ./provision-xqueue.sh
+	DOCKER_COMPOSE_FILES="-f docker-compose.yml -f docker-compose-xqueue.yml" $(WINPTY) bash ./provision-xqueue.sh
 
-dev.reset: | down dev.repo.reset pull dev.up static update-db ## Attempts to reset the local devstack to a the master working state
+dev.reset: | down dev.repo.reset pull dev.up static update-db ## Attempts to reset the local devstack to the master working state
 
 dev.status: ## Prints the status of all git repositories
-	./repo.sh status
+	$(WINPTY) bash ./repo.sh status
 
 dev.repo.reset: ## Attempts to reset the local repo checkouts to the master working state
-	./repo.sh reset
+	$(WINPTY) bash ./repo.sh reset
 
 dev.up: | check-memory ## Bring up all services with host volumes
-	docker-compose -f docker-compose.yml -f docker-compose-host.yml up -d
+	bash -c 'docker-compose -f docker-compose.yml -f docker-compose-host.yml up -d'
 	@# Comment out this next line if you want to save some time and don't care about catalog programs
-	./programs/provision.sh cache >/dev/null
+	$(WINPTY) bash ./programs/provision.sh cache $(DEVNULL)
 
 dev.up.watchers: | check-memory ## Bring up asset watcher containers
-	docker-compose -f docker-compose-watchers.yml up -d
+	bash -c 'docker-compose -f docker-compose-watchers.yml up -d'
 
 dev.up.xqueue: | check-memory ## Bring up xqueue, assumes you already have lms running
-	docker-compose -f docker-compose.yml -f docker-compose-xqueue.yml -f docker-compose-host.yml up -d
+	bash -c 'docker-compose -f docker-compose.yml -f docker-compose-xqueue.yml -f docker-compose-host.yml up -d'
 
 dev.up.all: | dev.up dev.up.watchers ## Bring up all services with host volumes, including watchers
 
@@ -94,7 +109,7 @@ stop.watchers: ## Stop asset watchers
 
 stop.all: | stop.analytics_pipeline stop stop.watchers ## Stop all containers, including asset watchers
 
-stop.xqueue:
+stop.xqueue: ## Stop the XQueue service container
 	docker-compose -f docker-compose-xqueue.yml stop
 
 down: ## Remove all service containers and networks
@@ -102,7 +117,7 @@ down: ## Remove all service containers and networks
 	docker-compose -f docker-compose.yml -f docker-compose-watchers.yml -f docker-compose-xqueue.yml -f docker-compose-analytics-pipeline.yml down
 
 destroy: ## Remove all devstack-related containers, networks, and volumes
-	./destroy.sh
+	$(WINPTY) bash ./destroy.sh
 
 logs: ## View logs from containers running in detached mode
 	docker-compose -f docker-compose.yml -f docker-compose-analytics-pipeline.yml logs -f
@@ -117,10 +132,10 @@ xqueue_consumer-logs: ## View logs from containers running in detached mode
 	docker-compose -f docker-compose-xqueue.yml logs -f xqueue_consumer
 
 pull: ## Update Docker images
-	docker-compose pull --parallel
+	docker-compose pull
 
 pull.xqueue: ## Update XQueue Docker images
-	docker-compose -f docker-compose-xqueue.yml pull --parallel
+	docker-compose -f docker-compose-xqueue.yml pull
 
 validate: ## Validate the devstack configuration
 	docker-compose config
@@ -140,7 +155,7 @@ restore:  ## Restore all data volumes from the host. WARNING: THIS WILL OVERWRIT
 %-shell: ## Run a shell on the specified service container
 	docker exec -it edx.devstack.$* /bin/bash
 
-credentials-shell:
+credentials-shell: ## Run a shell on the credentials container
 	docker exec -it edx.devstack.credentials env TERM=$(TERM) bash -c 'source /edx/app/credentials/credentials_env && cd /edx/app/credentials/credentials && /bin/bash'
 
 discovery-shell: ## Run a shell on the discovery container
@@ -208,7 +223,7 @@ studio-static: ## Rebuild static assets for the Studio container
 static: | credentials-static discovery-static ecommerce-static lms-static studio-static ## Rebuild static assets for all service containers
 
 healthchecks: ## Run a curl against all services' healthcheck endpoints to make sure they are up. This will eventually be parameterized
-	./healthchecks.sh
+	$(WINPTY) bash ./healthchecks.sh
 
 e2e-tests: ## Run the end-to-end tests against the service containers
 	docker run -t --network=devstack_default -v ${DEVSTACK_WORKSPACE}/edx-e2e-tests:/edx-e2e-tests -v ${DEVSTACK_WORKSPACE}/edx-platform:/edx-e2e-tests/lib/edx-platform --env-file ${DEVSTACK_WORKSPACE}/edx-e2e-tests/devstack_env edxops/e2e env TERM=$(TERM)  bash -c 'paver e2e_test --exclude="whitelabel\|enterprise"'
@@ -245,10 +260,10 @@ analytics-pipeline-shell: ## Run a shell on the analytics pipeline container
 	docker exec -it edx.devstack.analytics_pipeline env TERM=$(TERM) /edx/app/analytics_pipeline/devstack.sh open
 
 dev.up.analytics_pipeline: | check-memory ## Bring up analytics pipeline services
-	docker-compose -f docker-compose.yml -f docker-compose-analytics-pipeline.yml -f docker-compose-host.yml up -d analyticspipeline
+	bash -c 'docker-compose -f docker-compose.yml -f docker-compose-analytics-pipeline.yml -f docker-compose-host.yml up -d analyticspipeline'
 
 pull.analytics_pipeline: ## Update analytics pipeline docker images
-	docker-compose -f docker-compose.yml -f docker-compose-analytics-pipeline.yml pull --parallel
+	docker-compose -f docker-compose.yml -f docker-compose-analytics-pipeline.yml pull
 
 analytics-pipeline-devstack-test: ## Run analytics pipeline tests in travis build
 	docker exec -u hadoop -i edx.devstack.analytics_pipeline bash -c 'sudo chown -R hadoop:hadoop /edx/app/analytics_pipeline && source /edx/app/hadoop/.bashrc && make develop-local && make docker-test-acceptance-local ONLY_TESTS=edx.analytics.tasks.tests.acceptance.test_internal_reporting_database && make docker-test-acceptance-local ONLY_TESTS=edx.analytics.tasks.tests.acceptance.test_user_activity'
@@ -263,17 +278,17 @@ hadoop-application-logs-%: ## View hadoop logs by application Id
 # Provisions studio, ecommerce, and marketing with course(s) in test-course.json
 # Modify test-course.json before running this make target to generate a custom course
 create-test-course: ## NOTE: marketing course creation is not available for those outside edX
-	./course-generator/create-courses.sh --studio --ecommerce --marketing course-generator/test-course.json
+	$(WINPTY) bash ./course-generator/create-courses.sh --studio --ecommerce --marketing course-generator/test-course.json
 
 # Run the course json builder script and use the outputted course json to provision studio, ecommerce, and marketing
 # Modify the list of courses in build-course-json.sh beforehand to generate custom courses
 build-courses: ## NOTE: marketing course creation is not available for those outside edX
-	./course-generator/build-course-json.sh course-generator/tmp-config.json
-	./course-generator/create-courses.sh --studio --ecommerce --marketing course-generator/tmp-config.json
+	$(WINPTY) bash ./course-generator/build-course-json.sh course-generator/tmp-config.json
+	$(WINPTY) bash ./course-generator/create-courses.sh --studio --ecommerce --marketing course-generator/tmp-config.json
 	rm course-generator/tmp-config.json
 
 check-memory: ## Check if enough memory has been allocated to Docker
-	@if [ `docker info --format '{{json .}}' | python -c "from __future__ import print_function; import sys, json; print(json.load(sys.stdin)['MemTotal'])"` -lt 2095771648 ]; then echo "\033[0;31mWarning, System Memory is set too low!!! Increase Docker memory to be at least 2 Gigs\033[0m"; fi || exit 0
+	@if [ `docker info --format '{{.MemTotal}}'` -lt 2095771648 ]; then echo "\033[0;31mWarning, System Memory is set too low!!! Increase Docker memory to be at least 2 Gigs\033[0m"; fi || exit 0
 
 stats: ## Get per-container CPU and memory utilization data
 	docker stats --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"

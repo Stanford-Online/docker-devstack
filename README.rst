@@ -9,6 +9,11 @@ project is meant to replace the traditional Vagrant-based devstack with a
 multi-container approach driven by `Docker Compose`_. It is still in the
 beta testing phase.
 
+Updated Documentation
+---------------------
+
+These docs might be out of date. Please see the updated docs at https://edx.readthedocs.io/projects/edx-installing-configuring-and-running/en/latest/installation/index.html.
+
 Support
 -------
 
@@ -18,8 +23,9 @@ https://openedx.atlassian.net/projects/PLAT/issues
 FYI
 ---
 
-You should run any ``make`` targets described below on your local machine, *not*
-from within a VM.
+You should run all ``make`` commands described below on your local machine, *not*
+from within a VM (virtualenvs are ok, and in fact recommended) as these commands
+are for standing up a new docker based VM.
 
 Prerequisites
 -------------
@@ -96,7 +102,13 @@ a minimum of 2 CPUs and 6GB of memory works well.
    Be sure to share the cloned directories in the Docker -> Preferences... ->
    File Sharing box.
 
-3. Run the provision command, if you haven't already, to configure the various
+3. Pull any changes made to the various images on which the devstack depends.
+
+   .. code:: sh
+
+       make pull
+
+4. Run the provision command, if you haven't already, to configure the various
    services with superusers (for development without the auth service) and
    tenants (for multi-tenancy).
 
@@ -120,7 +132,7 @@ a minimum of 2 CPUs and 6GB of memory works well.
        make dev.sync.provision
 
 
-4. Start the services. This command will mount the repositories under the
+5. Start the services. This command will mount the repositories under the
    DEVSTACK\_WORKSPACE directory.
 
    **NOTE:** it may take up to 60 seconds for the LMS to start, even after the ``make dev.up`` command outputs ``done``.
@@ -346,6 +358,14 @@ available. This will NOT be useful to those outside of edX. For details on
 getting things up and running, see
 https://openedx.atlassian.net/wiki/display/OpenDev/Marketing+Site.
 
+How do I develop on an installed Python package?
+------------------------------------------------
+
+If you want to modify an installed package – for instance ``edx-enterprise`` or ``completion`` – clone the repository in
+``~/workspace/src/your-package``. Next, ssh into the appropriate docker container (``make lms-shell``),
+run ``pip install -e /edx/src/your-package``, and restart the service.
+
+
 How do I build images?
 ----------------------
 
@@ -443,6 +463,21 @@ if your branch has fallen significantly behind master, it may not include all
 of the migrations included in the database dump used by provisioning.  In these
 cases, it's usually best to first rebase the branch onto master to
 get the missing migrations.
+
+How do I access a database shell?
+---------------------------------
+
+To access a MySQL or Mongo shell, run the following commands, respectively:
+
+.. code:: sh
+
+   make mysql-shell
+   mysql
+
+.. code:: sh
+    
+   make mongo-shell
+   mongo
 
 How do I make migrations?
 -------------------------
@@ -668,9 +703,9 @@ you can connect to the container running it via VNC.
 | Chrome (via Selenium)  | vnc://0.0.0.0:15900  |
 +------------------------+----------------------+
 
-On macOS, enter the VNC connection string in Safari to connect via VNC. The VNC
-passwords for both browsers are randomly generated and logged at container
-startup, and can be found by running ``make vnc-passwords``.
+On macOS, enter the VNC connection string in the address bar in Safari to
+connect via VNC. The VNC passwords for both browsers are randomly generated and
+logged at container startup, and can be found by running ``make vnc-passwords``.
 
 Most tests are run in Firefox by default.  To use Chrome for tests that normally
 use Firefox instead, prefix the test command with
@@ -696,7 +731,7 @@ and run the tests manually via paver:
     paver e2e_test --exclude="whitelabel\|enterprise"
 
 The browser running the tests can be seen and interacted with via VNC as
-described above (Chrome is used by default).
+described above (Firefox is used by default).
 
 Troubleshooting: General Tips
 -----------------------------
@@ -743,7 +778,7 @@ data volumes.
 Reset
 ~~~~~
 
-Somtimes you just aren't sure what's wrong, if you would like to hit the reset button
+Sometimes you just aren't sure what's wrong, if you would like to hit the reset button
 run ``make dev.reset``.
 
 Running this command will perform the following steps:
